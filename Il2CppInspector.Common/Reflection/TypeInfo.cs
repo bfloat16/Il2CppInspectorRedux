@@ -1140,23 +1140,37 @@ namespace Il2CppInspector.Reflection
         public string GetModifierString() {
             var modifiers = new StringBuilder(GetAccessModifierString());
 
-            // An abstract sealed class is a static class
-            if (IsAbstract && IsSealed)
-                modifiers.Append("static ");
-            else {
-                if (IsAbstract && !IsInterface)
+            switch (this)
+            {
+                // An abstract sealed class is a static class
+                case { IsAbstract: true, IsSealed: true }:
+                    modifiers.Append("static ");
+                    break;
+                case { IsAbstract: true, IsInterface: false }:
                     modifiers.Append("abstract ");
-                if (IsSealed && !IsValueType && !IsEnum)
+                    break;
+                case { IsSealed: true, IsValueType: false, IsEnum: false }:
                     modifiers.Append("sealed ");
+                    break;
             }
-            if (IsInterface)
-                modifiers.Append("interface ");
-            else if (IsValueType)
-                modifiers.Append("struct ");
-            else if (IsEnum)
-                modifiers.Append("enum ");
-            else
-                modifiers.Append("class ");
+
+            switch (this)
+            {
+                // IsEnum needs to be checked before IsValueType,
+                // as enums are both enums and ValueTypes
+                case { IsEnum: true }:
+                    modifiers.Append("enum ");
+                    break;
+                case { IsValueType: true }:
+                    modifiers.Append("struct ");
+                    break;
+                case { IsInterface: true }:
+                    modifiers.Append("interface ");
+                    break;
+                default:
+                    modifiers.Append("class ");
+                    break;
+            }
 
             return modifiers.ToString();
         }
