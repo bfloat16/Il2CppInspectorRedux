@@ -189,7 +189,13 @@ namespace Il2CppInspector
 
             // Get all field default values
             foreach (var fdv in Metadata.FieldDefaultValues)
-                FieldDefaultValue.Add(fdv.FieldIndex, ((ulong,object)) getDefaultValue(fdv.TypeIndex, fdv.DataIndex));
+            {
+                // Later metadata versions (seen in v106) use -1 for the last entry, which is not used.
+                if (fdv.FieldIndex == -1 && fdv.TypeIndex == -1)
+                    continue;
+
+                FieldDefaultValue.Add(fdv.FieldIndex, ((ulong, object))getDefaultValue(fdv.TypeIndex, fdv.DataIndex));
+            }
 
             // Get all parameter default values
             foreach (var pdv in Metadata.ParameterDefaultValues)
