@@ -257,14 +257,18 @@ class ScriptContext:
 
                 current_string_address = segment_base
                 for d in metadata["stringLiterals"]:
-                    self.define_string(d)
+                    # NOTE: This, for some reason, prevents IDA from inlining the constant strings
+                    # on x64 only (!). As this is not strictly required, we just disable it in general.
+                    # If this turns out to still be desired with the fake strings, we can disable this
+                    # on x64 only.
+                    # self.define_string(d)
 
                     ref_addr = self.parse_address(d)
                     written_string_length = self._backend.write_string(
                         current_string_address, d["string"]
                     )
-                    self._backend.set_data_type(ref_addr, r"const char* const")
                     self._backend.write_address(ref_addr, current_string_address)
+                    self._backend.set_data_type(ref_addr, r"const char* const")
 
                     current_string_address += written_string_length
                     self._status.update_progress()
