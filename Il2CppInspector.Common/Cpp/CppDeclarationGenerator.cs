@@ -351,7 +351,17 @@ public class CppDeclarationGenerator
 
         foreach (var mi in GetFilledVTable(ti))
         {
-            if (mi is { ContainsGenericParameters: false })
+            // The VirtualAddress: not null constraint is a workaround for a much bigger issue:
+            // circular generic argument references that cause loops when inflating the types.
+            // ex. Class<T> -> member Class<T[]> -> instantiates Class<T[]> -> member Class<T[][]> -> instantiates Class<T[][]> -> ...
+            // or  Class<T> -> member Class<SomeType<T>> -> instantiates Class<SomeType<T>> -> member Class<SomeType<SomeType<T>>> -> ...
+
+            // The only game (issue #49) that currently encounters this uses the MetaXR Unity SDK,
+            // which defines OVRTask<T> which has a method that returns OVRTask<T[]>.
+            // This filters out methods like that, as they get folded through generic sharing
+            // in the actual runtime.
+
+            if (mi is { ContainsGenericParameters: false, VirtualAddress: not null })
                 IncludeMethod(mi);
         }
 
