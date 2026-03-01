@@ -42,7 +42,7 @@ public class CppDeclarationGenerator
         // Configure inheritance style based on binary type; this can be overridden by setting InheritanceStyle in the object initializer
         InheritanceStyle = CppCompiler.GuessFromImage(model.Package.BinaryImage);
     }
-        
+
     // C type declaration used to name variables of the given C# type
     private static readonly Dictionary<string, string> primitiveTypeMap = new()
     {
@@ -89,6 +89,7 @@ public class CppDeclarationGenerator
         _visitedTypes.Clear();
         _todoFieldStructs.Clear();
         _todoTypeStructs.Clear();
+        _todoTypesExceedingNestingLimit.Clear();
     }
 
     #region Field Struct Generation
@@ -313,12 +314,34 @@ public class CppDeclarationGenerator
     private readonly HashSet<TypeInfo> _visitedTypes = [];
     private readonly List<TypeInfo> _todoTypeStructs = [];
 
+    private const int MaxGenericNestingDepth = 7;
+    private readonly HashSet<TypeInfo> _todoTypesExceedingNestingLimit = [];
+
+    private static int CalculateTypeDepth(TypeInfo type, int startingDepth = 0)
+    {
+        while (type.HasElementType)
+        {
+            startingDepth++;
+            type = type.ElementType;
+        }
+
+        var depth = startingDepth;
+        
+        var args = type.GenericTypeArguments;
+        for (int i = 0; i < args.Length; i++)
+        {
+            depth = Math.Max(depth, CalculateTypeDepth(args[i], startingDepth + 1));
+        }
+
+        return depth;
+    }
+
     /// <summary>
     /// Include the given type into this generator. This will add the given type and all types it depends on.
     /// Call GenerateRemainingTypeDeclarations to produce the actual type declarations afterwards.
     /// </summary>
     /// <param name="ti"></param>
-    public void IncludeType(TypeInfo ti) 
+    public void IncludeType(TypeInfo ti)
     {
         if (_visitedTypes.Contains(ti))
             return;
@@ -327,6 +350,23 @@ public class CppDeclarationGenerator
             return;
 
         _visitedTypes.Add(ti);
+
+        // This is my attempt at a solution for a big problem in some games:
+        // circular generic argument references that cause loops when inflating the types.
+        // ex. Class<T> -> member Class<T[]> -> instantiates Class<T[]> -> member Class<T[][]> -> instantiates Class<T[][]> -> ...
+        // or  Class<T> -> member Class<SomeType<T>> -> instantiates Class<SomeType<T>> -> member Class<SomeType<SomeType<T>>> -> ...
+
+        // The only game (issue #49) that currently encounters this uses the MetaXR Unity SDK,
+        // which defines OVRTask<T> which has a method that returns OVRTask<T[]>.
+        // This can also be filtered out by filtering out methods without an address, as they get folded through generic sharing,
+        // but this is a (hopefully) better solution to the problem.
+
+        var typeDepth = CalculateTypeDepth(ti);
+        if (typeDepth > MaxGenericNestingDepth)
+        {
+            _todoTypesExceedingNestingLimit.Add(ti);
+            return;
+        }
 
         if (ti.IsArray || ti.HasElementType) 
         {
@@ -351,17 +391,8 @@ public class CppDeclarationGenerator
 
         foreach (var mi in GetFilledVTable(ti))
         {
-            // The VirtualAddress: not null constraint is a workaround for a much bigger issue:
-            // circular generic argument references that cause loops when inflating the types.
-            // ex. Class<T> -> member Class<T[]> -> instantiates Class<T[]> -> member Class<T[][]> -> instantiates Class<T[][]> -> ...
-            // or  Class<T> -> member Class<SomeType<T>> -> instantiates Class<SomeType<T>> -> member Class<SomeType<SomeType<T>>> -> ...
 
-            // The only game (issue #49) that currently encounters this uses the MetaXR Unity SDK,
-            // which defines OVRTask<T> which has a method that returns OVRTask<T[]>.
-            // This filters out methods like that, as they get folded through generic sharing
-            // in the actual runtime.
-
-            if (mi is { ContainsGenericParameters: false, VirtualAddress: not null })
+            if (mi is { ContainsGenericParameters: false })
                 IncludeMethod(mi);
         }
 
@@ -456,9 +487,20 @@ public class CppDeclarationGenerator
             var (cls, statics, vtable) = GenerateTypeStruct(ti);
             decl.Add((ti, null, cls, null, vtable, statics));
         }
+        
+        /*
+         NOTE: This is currently not required, but if we do need custom types for deeply nested structs
+         this can be used
+        foreach (var ti in _todoTypesExceedingNestingLimit)
+        {
+            var dummyType = GenerateNestingLimitExceededStruct(ti);
+            decl.Add((ti, null, dummyType, null, null, null));
+        }
+        */
 
         _todoTypeStructs.Clear();
         _todoFieldStructs.Clear();
+        _todoTypesExceedingNestingLimit.Clear();
 
         return decl;
     }
