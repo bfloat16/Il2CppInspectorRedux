@@ -537,7 +537,7 @@ namespace Il2CppInspector
             // Load the metadata file
             Metadata metadata;
             try {
-                metadata = Metadata.FromStream(metadataStream, statusCallback);
+                metadata = Metadata.FromStream(metadataStream, binaryStream, statusCallback);
             }
             catch (Exception ex) {
                 Console.Error.WriteLine(ex.Message);

@@ -67,16 +67,23 @@ namespace Il2CppInspector
         private void StatusUpdate(string status) => OnStatusUpdate?.Invoke(this, status);
 
         // Initialize metadata object from a stream
-        public static Metadata FromStream(MemoryStream stream, EventHandler<string> statusCallback = null) {
+        public static Metadata FromStream(MemoryStream stream, EventHandler<string> statusCallback)
+            => FromStream(stream, null, statusCallback);
+
+        public static Metadata FromStream(MemoryStream stream, Stream binaryStream = null, EventHandler<string> statusCallback = null) {
             // TODO: This should really be placed before the Metadata object is created,
             // but for now this ensures it is called regardless of which client is in use
             PluginHooks.LoadPipelineStarting();
 
+            var metadataBytes = stream.ToArray();
+            var wasAutoTransformed = GuiHuanMetadataTransform.TryTransform(metadataBytes, binaryStream, statusCallback, out var transformedBytes);
+            var sourceBytes = wasAutoTransformed ? transformedBytes : metadataBytes;
+
             var metadata = new Metadata(statusCallback);
-            stream.Position = 0;
-            stream.CopyTo(metadata);
+            metadata.Write(sourceBytes, 0, sourceBytes.Length);
             metadata.Position = 0;
             metadata.Initialize();
+            metadata.IsModified |= wasAutoTransformed;
             return metadata;
         }
 

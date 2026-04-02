@@ -192,6 +192,7 @@ namespace Il2CppInspectorGUI
         }
 
         private Metadata metadata;
+        private MemoryStream pendingMetadataStream;
 
         // True if we extracted the current workload from an APK, IPA, zip file etc.
         private bool isExtractedFromPackage;
@@ -286,7 +287,16 @@ namespace Il2CppInspectorGUI
                     if (PluginManager.ValidateAllOptions().Error != null)
                         return false;
 
-                    metadata = Metadata.FromStream(metadataStream, StatusUpdate);
+                    var metadataBytes = metadataStream.ToArray();
+
+                    if (LooksLikeRawGuiHuanMetadata(metadataBytes)) {
+                        pendingMetadataStream = new MemoryStream(metadataBytes);
+                        metadata = null;
+                        return true;
+                    }
+
+                    pendingMetadataStream = null;
+                    metadata = Metadata.FromStream(new MemoryStream(metadataBytes), StatusUpdate);
                     return true;
                 }
                 catch (Exception ex) {
@@ -308,6 +318,14 @@ namespace Il2CppInspectorGUI
             Task.Run(() => {
                 try {
                     OnStatusUpdate?.Invoke(this, "Processing binary");
+
+                    if (metadata == null) {
+                        if (pendingMetadataStream == null)
+                            throw new InvalidOperationException("Please load a metadata file before loading the binary");
+
+                        metadata = Metadata.FromStream(new MemoryStream(pendingMetadataStream.ToArray()), binaryStream, StatusUpdate);
+                        pendingMetadataStream = null;
+                    }
 
                     // This may throw other exceptions from the individual loaders as well
                     IFileFormatStream stream = FileFormatStream.Load(binaryStream, ImageLoadOptions, StatusUpdate);
@@ -342,6 +360,11 @@ namespace Il2CppInspectorGUI
                     return false;
                 }
             });
+
+        private static bool LooksLikeRawGuiHuanMetadata(byte[] data)
+            => data.Length >= 8
+               && BitConverter.ToUInt32(data, 0) == 0x214E4D46
+               && BitConverter.ToUInt32(data, 4) == 31;
 
         // Property change notifier for IsExtractedFromPackage binding
         public event PropertyChangedEventHandler PropertyChanged;
